@@ -71,7 +71,7 @@
  */
 #include <inttypes.h>
 #include <stdio.h>
-#include "ble_midi_server.h"
+#include "ble_midi_client.h"
 #include "btstack.h"
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
@@ -81,59 +81,40 @@
 #include "bsp/board_api.h"
 #include "tusb.h"
 #include "usb_midi_host.h"
-// This is Bluetooth LE only
-#define APP_AD_FLAGS 0x06
-const uint8_t adv_data[] = {
-    // Flags general discoverable
-    0x02, BLUETOOTH_DATA_TYPE_FLAGS, APP_AD_FLAGS,
-    // Service class list
-    0x11, BLUETOOTH_DATA_TYPE_COMPLETE_LIST_OF_128_BIT_SERVICE_CLASS_UUIDS, 0x00, 0xc7, 0xc4, 0x4e, 0xe3, 0x6c, 0x51, 0xa7, 0x33, 0x4b, 0xe8, 0xed, 0x5a, 0x0e, 0xb8, 0x03,
-};
-const uint8_t adv_data_len = sizeof(adv_data);
-
-const uint8_t scan_resp_data[] = {
-    // Name
-    0x11, BLUETOOTH_DATA_TYPE_COMPLETE_LOCAL_NAME, 'B', 'L', 'E', '-', 'M', 'I', 'D', 'I', '2', 'U', 'S', 'B', 'H','U','B'
-};
-const uint8_t scan_resp_data_len = sizeof(scan_resp_data);
 
 static uint8_t midi_dev_addr = 0;
+
 
 int main()
 {
     board_init();
-    printf("Pico W BLE-MIDI to USB Host Adapter\r\n");
+    printf("Pico W BLE-MIDI Client to USB Host Adapter\r\n");
     tusb_init();
-    // initialize CYW43 driver architecture (will enable BT if/because CYW43_ENABLE_BLUETOOTH == 1)
     if (cyw43_arch_init()) {
         printf("ble-midi2usbhost: failed to initialize cyw43_arch\n");
         return -1;
     }
-    // No UI, just works pairing
-    ble_midi_server_init(profile_data, scan_resp_data, scan_resp_data_len,
-        IO_CAPABILITY_NO_INPUT_NO_OUTPUT,
-        SM_AUTHREQ_SECURE_CONNECTION | SM_AUTHREQ_BONDING);
+
+    // Initialize BLE-MIDI client
+    const char* profile_name = "BLE-MIDI2USBHOST";
+    ble_midi_client_init(profile_name, (uint8_t)strlen(profile_name), IO_CAPABILITY_NO_INPUT_NO_OUTPUT, SM_AUTHREQ_SECURE_CONNECTION | SM_AUTHREQ_BONDING);
+    ble_midi_client_scan_begin();
 
     for(;;) {
         tuh_task();
         bool usb_connected = midi_dev_addr != 0 && tuh_midi_configured(midi_dev_addr);
-        // poll the BLE-MIDI service and send MIDI data to USB
-        if (ble_midi_server_is_connected() && usb_connected && tuh_midih_get_num_tx_cables(midi_dev_addr) >= 1) {
+        // poll the BLE-MIDI client and send MIDI data to USB
+        if (ble_midi_client_is_connected() && usb_connected && tuh_midih_get_num_tx_cables(midi_dev_addr) >= 1) {
             uint16_t timestamp;
             uint8_t mes[3];
-            uint8_t nread = ble_midi_server_stream_read(sizeof(mes), mes, &timestamp);
+            uint8_t nread = ble_midi_client_stream_read(sizeof(mes), mes, &timestamp);
             if (nread != 0) {
-                // Ignore timestamps for now. Handling timestamps has a few issues:
-                // 1. Some applications (e.g., TouchDAW 2.3.1 for Android or Midi Wrench on an iPad)
-                //    always send timestamp value of 0.
-                // 2. Synchronizing the timestamps to the system clock has issues if there are
-                //    lost or out of order packets.
                 uint32_t nwritten = tuh_midi_stream_write(midi_dev_addr, 0, mes, nread);
                 if (nwritten != nread) {
                     TU_LOG1("Warning: Dropped %lu bytes receiving from Bluetooth MIDI In\r\n", nread - nwritten);
                 }
-            if (usb_connected)
-                tuh_midi_stream_flush(midi_dev_addr);
+                if (usb_connected)
+                    tuh_midi_stream_flush(midi_dev_addr);
             }
         }
     }

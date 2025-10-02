@@ -1,3 +1,17 @@
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if(WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else()
+    set(USERHOME $ENV{HOME})
+endif()
+set(sdkVersion 2.2.0)
+set(toolchainVersion 14_2_Rel1)
+set(picotoolVersion 2.2.0)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif()
+# ====================================================================================
 cmake_minimum_required(VERSION 3.13)
 set(target_name ble-midi2usbhost)
 set(PICO_BOARD pico_w)
@@ -16,7 +30,7 @@ add_executable(ble-midi2usbhost
     )
 target_link_libraries(ble-midi2usbhost
     pico_stdlib
-    ble_midi_server_lib
+    ble_midi_client_lib
     pico_btstack_cyw43
     pico_cyw43_arch_none
     ring_buffer_lib
