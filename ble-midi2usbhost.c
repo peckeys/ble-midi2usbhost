@@ -1,3 +1,7 @@
+#include "btstack_event.h"
+
+// Forward declaration
+static void btstack_event_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
 /**
  * MIT License
  *
@@ -95,6 +99,11 @@ int main()
         return -1;
     }
 
+    // Register btstack event handler for BLE disconnect
+    static btstack_packet_callback_registration_t hci_event_callback_registration;
+    hci_event_callback_registration.callback = &btstack_event_handler;
+    hci_add_event_handler(&hci_event_callback_registration);
+
     // Initialize BLE-MIDI client
     const char* profile_name = "BLE-MIDI2USBHOST";
     ble_midi_client_init(profile_name, (uint8_t)strlen(profile_name), IO_CAPABILITY_NO_INPUT_NO_OUTPUT, SM_AUTHREQ_SECURE_CONNECTION | SM_AUTHREQ_BONDING);
@@ -119,6 +128,62 @@ int main()
         }
     }
     return 0; // never gets here
+}
+
+// MIDI All Notes Off message for all 16 channels
+static void send_all_notes_off_and_all_controllers_off(uint8_t dev_addr) {
+    if (dev_addr == 0 || !tuh_midi_configured(dev_addr)) return;
+    uint8_t msg[3];
+    for (uint8_t ch = 0; ch < 16; ++ch) {
+        // All Notes Off
+        msg[0] = 0xB0 | (ch & 0x0F); // Control Change, channel ch
+        msg[1] = 0x7B; // All Notes Off controller
+        msg[2] = 0x00;
+        tuh_midi_stream_write(dev_addr, 0, msg, 3);
+        // All Controllers Off (CC 121)
+        msg[1] = 0x79;
+        msg[2] = 0x00;
+        tuh_midi_stream_write(dev_addr, 0, msg, 3);
+        // Sustain Pedal Up (CC 64 = 0)
+        msg[1] = 0x40;
+        msg[2] = 0x00;
+        tuh_midi_stream_write(dev_addr, 0, msg, 3);
+        // Portamento Off (CC 65 = 0)
+        msg[1] = 0x41;
+        msg[2] = 0x00;
+        tuh_midi_stream_write(dev_addr, 0, msg, 3);
+        // Sostenuto Pedal Off (CC 66 = 0)
+        msg[1] = 0x42;
+        msg[2] = 0x00;
+        tuh_midi_stream_write(dev_addr, 0, msg, 3);
+        // Soft Pedal Off (CC 67 = 0)
+        msg[1] = 0x43;
+        msg[2] = 0x00;
+        tuh_midi_stream_write(dev_addr, 0, msg, 3);
+        // Legato Footswitch Off (CC 68 = 0)
+        msg[1] = 0x44;
+        msg[2] = 0x00;
+        tuh_midi_stream_write(dev_addr, 0, msg, 3);
+    }
+    tuh_midi_stream_flush(dev_addr);
+}
+
+// BLE disconnect event handler
+static void ble_midi_client_on_disconnect(void) {
+    printf("BLE-MIDI disconnected, sending All Notes Off, All Controllers Off, Pedals Up, and restarting scan\n");
+    send_all_notes_off_and_all_controllers_off(midi_dev_addr);
+    ble_midi_client_scan_begin();
+}
+
+// btstack event handler to catch BLE disconnect
+static void btstack_event_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size) {
+    (void)channel; // a low level btstack detail we don't care about
+    (void)size; // a low level btstack detail we don't care about
+    if (packet_type != HCI_EVENT_PACKET) return;
+    uint8_t event_code = hci_event_packet_get_type(packet);
+    if (event_code == HCI_EVENT_DISCONNECTION_COMPLETE) {
+        ble_midi_client_on_disconnect();
+    }
 }
 
 //--------------------------------------------------------------------+
