@@ -1,3 +1,7 @@
+
 build
+.vscode/
 .vscode/.cortex-debug.*
+# Pico SDK toolchain and environment (optional, for local setups)
+.pico-sdk/
 
